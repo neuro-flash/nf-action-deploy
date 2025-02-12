@@ -1,0 +1,46 @@
+name: 'Deploy'
+description: 'Deploy to GCP cloudRun'
+inputs:
+  env:
+    description: 'dev | qa | prod'
+    required: true
+  key:
+    description: 'GCP service key base64 encoded'
+    required: true
+  serviceName:
+    description: 'name of the service'
+    required: true
+  region:
+    description: 'GCP region'
+    required: false
+    default: 'europe-west4'
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: nf-environment-${{ inputs.env }}
+    - name: deploy ${{ inputs.env }}
+      shell: bash
+      env:
+        ENV: ${{ inputs.env }}
+        GCP_REGION: ${{ inputs.region }}
+      run: |
+        echo "Authenticate for docker"
+        export BASE_REPO=${GCP_REGION}-docker.pkg.dev
+        export CONTAINER_REPO=${BASE_REPO}/nf-artifact-repositories/${GCP_NAME}
+        export CLOUDRUN_SERVICE=${GCP_NAME}-${ENV}
+        export NEW_IMAGE=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
+        export IMG=${CONTAINER_REPO}/all:${{ github.sha }}
+        echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
+        gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
+        gcloud auth configure-docker --quiet $BASE_REPO
+        echo "wait until image push completed successfully"
+        timeout 180 bash -c 'until gcloud container images describe $IMG > /dev/null 2>&1; do sleep 1; done'
+        echo "retagging ${IMG} to ${NEW_IMAGE}"
+        gcloud container images add-tag -q $IMG $NEW_IMAGE
+        echo "updating the cloudRun service '${CLOUDRUN_SERVICE}'"
+        gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}  
+      
+
