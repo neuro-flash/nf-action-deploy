@@ -37,7 +37,7 @@ runs:
         echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
         gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
         gcloud auth configure-docker --quiet $BASE_REPO
-        echo "wait until image push completed successfully"
+        echo "wait until image push completed successfully for image $IMG"
         timeout 180 bash -c 'until gcloud container images describe $IMG > /dev/null 2>&1; do sleep 1; done'
         echo "retagging ${IMG} to ${NEW_IMAGE}"
         gcloud container images add-tag -q $IMG $NEW_IMAGE
