@@ -32,16 +32,26 @@ runs:
         export BASE_REPO=${GCP_REGION}-docker.pkg.dev
         export CONTAINER_REPO=${BASE_REPO}/nf-artifact-repositories/${GCP_NAME}
         export CLOUDRUN_SERVICE=${GCP_NAME}-${ENV}
-        export NEW_IMAGE=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
-        export IMG=${CONTAINER_REPO}/all:${{ github.sha }}
+        export ENV_IMG=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
+        export ALL_IMG=${CONTAINER_REPO}/all:${{ github.sha }}
+        
         echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
         gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
         gcloud auth configure-docker --quiet $BASE_REPO
-        echo "wait until image push completed successfully for image $IMG"
-        timeout 180 bash -c 'until gcloud container images describe $IMG > /dev/null 2>&1; do sleep 1; done'
-        echo "retagging ${IMG} to ${NEW_IMAGE}"
-        gcloud container images add-tag -q $IMG $NEW_IMAGE
-        echo "updating the cloudRun service '${CLOUDRUN_SERVICE}'"
-        gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}  
-      
-
+        
+        # Check if environment-specific image exists
+        if gcloud container images describe ${ENV_IMG} > /dev/null 2>&1; then
+          echo "Using existing image ${ENV_IMG}"
+          export NEW_IMAGE=${ENV_IMG}
+        else
+          echo "Environment image not found, checking for 'all' tag"
+          # Wait for all-tagged image and retag it
+          echo "Wait until image push completed for ${ALL_IMG}"
+          timeout 180 bash -c 'until gcloud container images describe ${ALL_IMG} > /dev/null 2>&1; do sleep 1; done'
+          echo "Retagging ${ALL_IMG} to ${ENV_IMG}"
+          gcloud container images add-tag -q ${ALL_IMG} ${ENV_IMG}
+          export NEW_IMAGE=${ENV_IMG}
+        fi
+        
+        echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
+        gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
