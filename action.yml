@@ -59,5 +59,7 @@ runs:
         
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
-        gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
+        if [ "${{ inputs.job }}" = "true" ]; then
+          gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
+        fi
       
