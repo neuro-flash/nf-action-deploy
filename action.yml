@@ -14,6 +14,10 @@ inputs:
     description: 'GCP region'
     required: false
     default: 'europe-west4'
+  job:
+    description: 'set to false if this service does not have a cloudrun-job that needs to be updated'
+    required: false
+    default: 'true'
 runs:
   using: "composite"
   steps:
@@ -43,5 +47,6 @@ runs:
         gcloud container images add-tag -q $IMG $NEW_IMAGE
         echo "updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}  
+        gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
       
 
