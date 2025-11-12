@@ -18,6 +18,10 @@ inputs:
     description: 'set to false if this service does not have a cloudrun-job that needs to be updated'
     required: false
     default: 'true'
+  imageKey:
+    description: 'the image key to be used to find the image'
+    required: false
+    default: 'all'
 runs:
   using: "composite"
   steps:
@@ -37,25 +41,19 @@ runs:
         export CONTAINER_REPO=${BASE_REPO}/nf-artifact-repositories/${GCP_NAME}
         export CLOUDRUN_SERVICE=${GCP_NAME}-${ENV}
         export ENV_IMG=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
-        export ALL_IMG=${CONTAINER_REPO}/all:${{ github.sha }}
+        export IMG=${CONTAINER_REPO}/${{ inputs.imageKey }}:${{ github.sha }}
         
         echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
         gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
         gcloud auth configure-docker --quiet $BASE_REPO
         
-        # Check if environment-specific image exists
-        if gcloud container images describe ${ENV_IMG} > /dev/null 2>&1; then
-          echo "Using existing image ${ENV_IMG}"
-          export NEW_IMAGE=${ENV_IMG}
-        else
-          echo "Environment image not found, checking for 'all' tag"
-          # Wait for all-tagged image and retag it
-          echo "Wait until image push completed for ${ALL_IMG}"
-          timeout 180 bash -c 'until gcloud container images describe ${ALL_IMG} > /dev/null 2>&1; do sleep 1; done'
-          echo "Retagging ${ALL_IMG} to ${ENV_IMG}"
-          gcloud container images add-tag -q ${ALL_IMG} ${ENV_IMG}
-          export NEW_IMAGE=${ENV_IMG}
+        echo "Wait until image push completed for ${IMG}"
+        timeout 180 bash -c 'until gcloud container images describe ${IMG} > /dev/null 2>&1; do sleep 1; done'
+        if [ "${IMG}" != "${ENV_IMG}" ]; then
+          echo "Retagging ${IMG} to ${ENV_IMG}"
+          gcloud container images add-tag -q ${IMG} ${ENV_IMG}
         fi
+        export NEW_IMAGE=${ENV_IMG}
         
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
