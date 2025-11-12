@@ -40,7 +40,7 @@ runs:
         export BASE_REPO=${GCP_REGION}-docker.pkg.dev
         export CONTAINER_REPO=${BASE_REPO}/nf-artifact-repositories/${GCP_NAME}
         export CLOUDRUN_SERVICE=${GCP_NAME}-${ENV}
-        export ENV_IMG=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
+        export NEW_IMAGE=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
         export IMG=${CONTAINER_REPO}/${{ inputs.imageKey }}:${{ github.sha }}
         
         echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
@@ -49,11 +49,10 @@ runs:
         
         echo "Wait until image push completed for ${IMG}"
         timeout 180 bash -c 'until gcloud container images describe ${IMG} > /dev/null 2>&1; do sleep 1; done'
-        if [ "${IMG}" != "${ENV_IMG}" ]; then
-          echo "Retagging ${IMG} to ${ENV_IMG}"
-          gcloud container images add-tag -q ${IMG} ${ENV_IMG}
+        if [ "${IMG}" != "${NEW_IMAGE}" ]; then
+          echo "Retagging ${IMG} to ${NEW_IMAGE}"
+          gcloud container images add-tag -q ${IMG} ${NEW_IMAGE}
         fi
-        export NEW_IMAGE=${ENV_IMG}
         
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
