@@ -58,7 +58,7 @@ runs:
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
 
         # Ensure all traffic serves the latest revision. 
-        echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}' (latest currently at ${LATEST_PERCENT:-0}%)"
+        echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}'"
         gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION} 
 
         if [ "${{ inputs.job }}" = "true" ]; then
