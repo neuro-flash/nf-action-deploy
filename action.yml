@@ -65,8 +65,8 @@ runs:
         LATEST_PERCENT=$(gcloud run services describe ${CLOUDRUN_SERVICE} \
           --region ${GCP_REGION} \
           --flatten='status.traffic[]' \
-          --filter='status.traffic.latestRevision=true' \
-          --format='value(status.traffic.percent)' 2>/dev/null | head -1)
+          --format='csv[no-heading](status.traffic.latestRevision,status.traffic.percent)' 2>/dev/null \
+          | awk -F, 'tolower($1)=="true"{print $2; exit}')
         if [ "${LATEST_PERCENT:-0}" = "100" ]; then
           echo "Latest revision of '${CLOUDRUN_SERVICE}' already serves 100% of traffic — skipping update-traffic"
         else
