@@ -56,6 +56,8 @@ runs:
         
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
+        echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}'"
+        gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION} --quiet
         if [ "${{ inputs.job }}" = "true" ]; then
           gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
         fi
