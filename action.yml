@@ -57,22 +57,9 @@ runs:
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
 
-        # Ensure all traffic serves the latest revision. `gcloud run deploy`
-        # only moves traffic to the new revision when traffic is not pinned;
-        # if it is pinned, the new revision is created serving 0%. Check the
-        # percentage assigned to the latest revision and only update traffic
-        # when it is not already at 100% (avoids a redundant call per deploy).
-        LATEST_PERCENT=$(gcloud run services describe ${CLOUDRUN_SERVICE} \
-          --region ${GCP_REGION} \
-          --flatten='status.traffic[]' \
-          --format='csv[no-heading](status.traffic.latestRevision,status.traffic.percent)' 2>/dev/null \
-          | awk -F, 'tolower($1)=="true"{print $2; exit}')
-        if [ "${LATEST_PERCENT:-0}" = "100" ]; then
-          echo "Latest revision of '${CLOUDRUN_SERVICE}' already serves 100% of traffic — skipping update-traffic"
-        else
-          echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}' (latest currently at ${LATEST_PERCENT:-0}%)"
-          gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION} --quiet
-        fi
+        # Ensure all traffic serves the latest revision. 
+        echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}' (latest currently at ${LATEST_PERCENT:-0}%)"
+        gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION} 
 
         if [ "${{ inputs.job }}" = "true" ]; then
           gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
