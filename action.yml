@@ -22,13 +22,28 @@ inputs:
     description: 'the image key to be used to find the image'
     required: false
     default: 'all'
+  project:
+    description: 'GCP project override, defaults to nf-environment-{env}'
+    required: false
+    default: ''
 runs:
   using: "composite"
   steps:
+    - name: Determine GCP project ID
+      id: project
+      env:
+        ENV: ${{ inputs.env }}
+        PROJECT: ${{ inputs.project }}
+      shell: bash
+      run: |
+        (
+           echo -n 'id='
+           [ -z "${PROJECT}" ] && echo "nf-environment-${ENV}" || echo "${PROJECT}"
+        ) >> $GITHUB_OUTPUT
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       with:
-        project_id: nf-environment-${{ inputs.env }}
+        project_id: ${{ steps.project.outputs.id }}
     - name: deploy ${{ inputs.env }}
       shell: bash
       env:
