@@ -1,0 +1,110 @@
+name: 'Deploy to Scaleway'
+description: 'Copy the image built for the source env into the env registry and deploy it to Scaleway Serverless Containers/Jobs'
+inputs:
+  env:
+    description: 'dev | qa | prod'
+    required: true
+  serviceName:
+    description: 'name of the service'
+    required: true
+  accessKey:
+    description: 'Scaleway access key'
+    required: true
+  secretKey:
+    description: 'Scaleway secret key'
+    required: true
+  organizationId:
+    description: 'Scaleway organization id'
+    required: true
+  region:
+    description: 'Scaleway region'
+    required: false
+    default: 'nl-ams'
+  sourceEnv:
+    description: 'env whose registry the pipeline pushed the image to'
+    required: false
+    default: 'dev'
+  container:
+    description: 'set to false if this service has no serverless container'
+    required: false
+    default: 'true'
+  job:
+    description: 'set to true if this service has a serverless job that needs to be updated'
+    required: false
+    default: 'false'
+  scwVersion:
+    description: 'Scaleway CLI version'
+    required: false
+    default: '2.63.0'
+runs:
+  using: "composite"
+  steps:
+    - name: Set up crane
+      uses: imjasonh/setup-crane@v0.4
+
+    - name: Set up Scaleway CLI
+      shell: bash
+      env:
+        SCW_VERSION: ${{ inputs.scwVersion }}
+      run: |
+        mkdir -p "${HOME}/.local/bin"
+        curl -sSfL -o "${HOME}/.local/bin/scw" "https://github.com/scaleway/scaleway-cli/releases/download/v${SCW_VERSION}/scaleway-cli_${SCW_VERSION}_linux_amd64"
+        chmod +x "${HOME}/.local/bin/scw"
+        echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
+    - name: deploy ${{ inputs.env }}
+      shell: bash
+      env:
+        ENV: ${{ inputs.env }}
+        SOURCE_ENV: ${{ inputs.sourceEnv }}
+        NAME: ${{ inputs.serviceName }}
+        SCW_ACCESS_KEY: ${{ inputs.accessKey }}
+        SCW_SECRET_KEY: ${{ inputs.secretKey }}
+        SCW_DEFAULT_ORGANIZATION_ID: ${{ inputs.organizationId }}
+        SCW_DEFAULT_REGION: ${{ inputs.region }}
+      # language=bash
+      run: |
+        set -euo pipefail
+        REGISTRY=rg.${SCW_DEFAULT_REGION}.scw.cloud
+        export SRC=${REGISTRY}/nf-${NAME}-${SOURCE_ENV}/${NAME}:${{ github.sha }}
+        IMG=${REGISTRY}/nf-${NAME}-${ENV}/${NAME}:${{ github.sha }}
+        RESOURCE=${NAME}-${ENV}
+
+        crane auth login "${REGISTRY}" -u nologin -p "${SCW_SECRET_KEY}"
+
+        echo "Wait until image push completed for ${SRC}"
+        timeout 180 bash -c 'until crane digest "${SRC}" > /dev/null 2>&1; do sleep 2; done'
+        if [ "${SRC}" != "${IMG}" ]; then
+          echo "Copying ${SRC} to ${IMG}"
+          crane copy "${SRC}" "${IMG}"
+        fi
+
+        if [ "${{ inputs.container }}" = "true" ]; then
+          CONTAINER_ID=$(scw container container list name="${RESOURCE}" -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          echo "Updating the container '${RESOURCE}'"
+          scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
+
+          echo "Waiting for '${RESOURCE}' to be ready"
+          sleep 5
+          for _ in $(seq 1 120); do
+            STATUS=$(scw container container get "${CONTAINER_ID}" -o json | jq -r .status)
+            case "${STATUS}" in
+              ready) break ;;
+              error)
+                scw container container get "${CONTAINER_ID}" -o json | jq -r .error_message
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          if [ "${STATUS}" != "ready" ]; then
+            echo "'${RESOURCE}' is still ${STATUS}"
+            exit 1
+          fi
+        fi
+
+        if [ "${{ inputs.job }}" = "true" ]; then
+          JOB_ID=$(scw jobs definition list -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          echo "Updating the job '${RESOURCE}'"
+          scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
+        fi
