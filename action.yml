@@ -1,5 +1,5 @@
 name: 'Deploy'
-description: 'Deploy to GCP cloudRun'
+description: 'Deploy to GCP cloudRun (deprecated: replaced with scaleway, see ./scaleway)'
 inputs:
   env:
     description: 'dev | qa | prod'
