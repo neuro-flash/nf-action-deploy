@@ -1,35 +1,161 @@
+# GCP is being replaced with Scaleway. Everything between the "GCP: delete once GCP is shut down" markers can be
+# removed once GCP is gone. Since our version tags on this action are mutable, we can then move the tags that services
+# use onto the GCP-free version instead of touching every repository (leftover `key`/`region`/`job`/`imageKey`/`project`
+# inputs in workflows only produce an "Unexpected input" warning).
 name: 'Deploy'
-description: 'Deploy to GCP cloudRun (deprecated: replaced with scaleway, see ./scaleway)'
+description: 'Deploy to Scaleway Serverless Containers/Jobs and/or GCP cloudRun (Scaleway requires a Linux X64 or ARM64 runner)'
 inputs:
   env:
     description: 'dev | qa | prod'
     required: true
-  key:
-    description: 'GCP service key base64 encoded'
-    required: true
   serviceName:
     description: 'name of the service'
     required: true
+  scwAccessKey:
+    description: 'Scaleway access key; leave empty to skip deploying to Scaleway'
+    required: false
+    default: ''
+  scwSecretKey:
+    description: 'Scaleway secret key'
+    required: false
+    default: ''
+  scwOrganizationId:
+    description: 'Scaleway organization id'
+    required: false
+    default: ''
+  scwRegion:
+    description: 'Scaleway region'
+    required: false
+    default: 'nl-ams'
+  scwContainer:
+    description: 'set to false if this service has no serverless container'
+    required: false
+    default: 'true'
+  scwJob:
+    description: 'set to true if this service has a serverless job that needs to be updated'
+    required: false
+    default: 'false'
+  scwVersion:
+    description: 'Scaleway CLI version'
+    required: false
+    default: '2.63.0'
+  # ===== GCP: delete once GCP is shut down =====
+  key:
+    description: 'GCP service key base64 encoded; leave empty to skip deploying to GCP (deprecated: replaced with scaleway)'
+    required: false
+    default: ''
   region:
-    description: 'GCP region'
+    description: 'GCP region (deprecated: replaced with scaleway)'
     required: false
     default: 'europe-west4'
   job:
-    description: 'set to false if this service does not have a cloudrun-job that needs to be updated'
+    description: 'set to false if this service does not have a cloudrun-job that needs to be updated (deprecated: replaced with scaleway)'
     required: false
     default: 'true'
   imageKey:
-    description: 'the image key to be used to find the image'
+    description: 'the image key to be used to find the GCP image (deprecated: replaced with scaleway)'
     required: false
     default: 'all'
   project:
-    description: 'GCP project override, defaults to nf-environment-{env}'
+    description: 'GCP project override, defaults to nf-environment-{env} (deprecated: replaced with scaleway)'
     required: false
     default: ''
+  # ===== end GCP =====
 runs:
   using: "composite"
   steps:
+    - name: Check inputs
+      shell: bash
+      env:
+        GCP_KEY: ${{ inputs.key }}
+        SCW_ACCESS_KEY: ${{ inputs.scwAccessKey }}
+      run: |
+        # ===== GCP: delete once GCP is shut down (keep the Scaleway check) =====
+        if [ -z "${GCP_KEY}" ] && [ -z "${SCW_ACCESS_KEY}" ]; then
+          echo "Either key (GCP) or scwAccessKey (Scaleway) is required"
+          exit 1
+        fi
+        # ===== end GCP =====
+
+    - name: Set up Scaleway CLI
+      if: inputs.scwAccessKey != ''
+      shell: bash
+      env:
+        SCW_VERSION: ${{ inputs.scwVersion }}
+      run: |
+        if [ "${RUNNER_OS}" != "Linux" ]; then
+          echo "Unsupported runner OS: ${RUNNER_OS} (Linux required)"
+          exit 1
+        fi
+        case "${RUNNER_ARCH}" in
+          X64) ARCH=amd64 ;;
+          ARM64) ARCH=arm64 ;;
+          *) echo "Unsupported runner architecture: ${RUNNER_ARCH} (X64 or ARM64 required)"; exit 1 ;;
+        esac
+        mkdir -p "${HOME}/.local/bin"
+        curl -sSfL -o "${HOME}/.local/bin/scw" "https://github.com/scaleway/scaleway-cli/releases/download/v${SCW_VERSION}/scaleway-cli_${SCW_VERSION}_linux_${ARCH}"
+        chmod +x "${HOME}/.local/bin/scw"
+        echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
+    - name: deploy ${{ inputs.env }} on Scaleway
+      if: inputs.scwAccessKey != ''
+      shell: bash
+      env:
+        ENV: ${{ inputs.env }}
+        NAME: ${{ inputs.serviceName }}
+        SCW_ACCESS_KEY: ${{ inputs.scwAccessKey }}
+        SCW_SECRET_KEY: ${{ inputs.scwSecretKey }}
+        SCW_DEFAULT_ORGANIZATION_ID: ${{ inputs.scwOrganizationId }}
+        SCW_DEFAULT_REGION: ${{ inputs.scwRegion }}
+        DEPLOY_CONTAINER: ${{ inputs.scwContainer }}
+        DEPLOY_JOB: ${{ inputs.scwJob }}
+      # language=bash
+      run: |
+        set -euo pipefail
+        REGISTRY=rg.${SCW_DEFAULT_REGION}.scw.cloud
+        # nf-action-build-and-push pushes the image to the registry of every env, so no copy is needed here
+        IMG=${REGISTRY}/nf-${NAME}-${ENV}/${NAME}:${GITHUB_SHA}
+        RESOURCE=${NAME}-${ENV}
+
+        echo "${SCW_SECRET_KEY}" | docker login "${REGISTRY}" -u nologin --password-stdin > /dev/null
+        if ! docker buildx imagetools inspect "${IMG}" > /dev/null 2>&1; then
+          echo "::error::Image ${IMG} not found. Run neuro-flash/nf-action-build-and-push for this commit in a job before the deploy (e.g. via needs:)."
+          exit 1
+        fi
+
+        if [ "${DEPLOY_CONTAINER}" = "true" ]; then
+          CONTAINER_ID=$(scw container container list name="${RESOURCE}" -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          echo "Updating the container '${RESOURCE}'"
+          scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
+
+          echo "Waiting for '${RESOURCE}' to be ready"
+          sleep 5
+          for _ in $(seq 1 120); do
+            STATUS=$(scw container container get "${CONTAINER_ID}" -o json | jq -r .status)
+            case "${STATUS}" in
+              ready) break ;;
+              error)
+                scw container container get "${CONTAINER_ID}" -o json | jq -r .error_message
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          if [ "${STATUS}" != "ready" ]; then
+            echo "'${RESOURCE}' is still ${STATUS}"
+            exit 1
+          fi
+        fi
+
+        if [ "${DEPLOY_JOB}" = "true" ]; then
+          JOB_ID=$(scw jobs definition list -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          echo "Updating the job '${RESOURCE}'"
+          scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
+        fi
+
+    # ===== GCP: delete once GCP is shut down =====
     - name: Determine GCP project ID
+      if: inputs.key != ''
       id: project
       env:
         ENV: ${{ inputs.env }}
@@ -41,10 +167,12 @@ runs:
            [ -z "${PROJECT}" ] && echo "nf-environment-${ENV}" || echo "${PROJECT}"
         ) >> $GITHUB_OUTPUT
     - name: Set up Cloud SDK
+      if: inputs.key != ''
       uses: google-github-actions/setup-gcloud@v1
       with:
         project_id: ${{ steps.project.outputs.id }}
-    - name: deploy ${{ inputs.env }}
+    - name: deploy ${{ inputs.env }} on GCP
+      if: inputs.key != ''
       shell: bash
       env:
         ENV: ${{ inputs.env }}
@@ -57,26 +185,26 @@ runs:
         export CLOUDRUN_SERVICE=${GCP_NAME}-${ENV}
         export NEW_IMAGE=${CONTAINER_REPO}/${ENV}:${{ github.sha }}
         export IMG=${CONTAINER_REPO}/${{ inputs.imageKey }}:${{ github.sha }}
-        
+
         echo ${{ inputs.key }} | base64 --decode > ${HOME}/gcloud-service-key.json
         gcloud auth activate-service-account --key-file=${HOME}/gcloud-service-key.json
         gcloud auth configure-docker --quiet $BASE_REPO
-        
+
         echo "Wait until image push completed for ${IMG}"
         timeout 180 bash -c 'until gcloud container images describe ${IMG} > /dev/null 2>&1; do sleep 1; done'
         if [ "${IMG}" != "${NEW_IMAGE}" ]; then
           echo "Retagging ${IMG} to ${NEW_IMAGE}"
           gcloud container images add-tag -q ${IMG} ${NEW_IMAGE}
         fi
-        
+
         echo "Updating the cloudRun service '${CLOUDRUN_SERVICE}'"
         gcloud run deploy ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
 
-        # Ensure all traffic serves the latest revision. 
+        # Ensure all traffic serves the latest revision.
         echo "Routing 100% of traffic to the latest revision of '${CLOUDRUN_SERVICE}'"
-        gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION} 
+        gcloud run services update-traffic ${CLOUDRUN_SERVICE} --to-latest --region ${GCP_REGION}
 
         if [ "${{ inputs.job }}" = "true" ]; then
           gcloud run jobs update ${CLOUDRUN_SERVICE} --image ${NEW_IMAGE} --region ${GCP_REGION}
         fi
-      
+    # ===== end GCP =====
