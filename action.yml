@@ -32,9 +32,9 @@ inputs:
     required: false
     default: 'true'
   scwJob:
-    description: 'set to true if this service has a serverless job that needs to be updated'
+    description: 'set to false if this service has no serverless job'
     required: false
-    default: 'false'
+    default: 'true'
   scwVersion:
     description: 'Scaleway CLI version'
     required: false
