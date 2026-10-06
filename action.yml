@@ -127,6 +127,7 @@ runs:
           CONTAINER_ID=$(scw container container list name="${RESOURCE}" -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
           echo "Updating the container '${RESOURCE}'"
           scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
+          CONTAINER_UPDATED_AT=${SECONDS}
         fi
 
         if [ "${DEPLOY_JOB}" = "true" ]; then
@@ -144,6 +145,7 @@ runs:
             case "${STATUS}" in
               ready) break ;;
               error)
+                echo "'${RESOURCE}' failed after $((SECONDS - CONTAINER_UPDATED_AT))s"
                 scw container container get "${CONTAINER_ID}" -o json | jq -r .error_message
                 exit 1
                 ;;
@@ -151,9 +153,10 @@ runs:
             sleep 5
           done
           if [ "${STATUS}" != "ready" ]; then
-            echo "'${RESOURCE}' is still ${STATUS}"
+            echo "'${RESOURCE}' is still ${STATUS} after $((SECONDS - CONTAINER_UPDATED_AT))s"
             exit 1
           fi
+          echo "'${RESOURCE}' became ready after $((SECONDS - CONTAINER_UPDATED_AT))s"
         fi
 
     # ===== GCP: delete once GCP is shut down =====
