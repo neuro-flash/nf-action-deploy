@@ -127,7 +127,16 @@ runs:
           CONTAINER_ID=$(scw container container list name="${RESOURCE}" -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
           echo "Updating the container '${RESOURCE}'"
           scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
+        fi
 
+        if [ "${DEPLOY_JOB}" = "true" ]; then
+          JOB_ID=$(scw jobs definition list -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          echo "Updating the job '${RESOURCE}'"
+          scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
+        fi
+
+        # waiting last so the job update runs while the container is still deploying
+        if [ "${DEPLOY_CONTAINER}" = "true" ]; then
           echo "Waiting for '${RESOURCE}' to be ready"
           sleep 5
           for _ in $(seq 1 120); do
@@ -145,12 +154,6 @@ runs:
             echo "'${RESOURCE}' is still ${STATUS}"
             exit 1
           fi
-        fi
-
-        if [ "${DEPLOY_JOB}" = "true" ]; then
-          JOB_ID=$(scw jobs definition list -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
-          echo "Updating the job '${RESOURCE}'"
-          scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
         fi
 
     # ===== GCP: delete once GCP is shut down =====
