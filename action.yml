@@ -1,6 +1,6 @@
 # GCP is being replaced with Scaleway. Everything between the "GCP: delete once GCP is shut down" markers can be
 # removed once GCP is gone. Since our version tags on this action are mutable, we can then move the tags that services
-# use onto the GCP-free version instead of touching every repository (leftover `key`/`region`/`job`/`imageKey`/`project`
+# use onto the GCP-free version instead of touching every repository (leftover `key`/`region`/`imageKey`/`project`
 # inputs in workflows only produce an "Unexpected input" warning).
 name: 'Deploy'
 description: 'Deploy to Scaleway Serverless Containers/Jobs and/or GCP cloudRun (Scaleway requires a Linux X64 or ARM64 runner)'
@@ -31,8 +31,8 @@ inputs:
     description: 'set to false if this service has no serverless container'
     required: false
     default: 'true'
-  scwJob:
-    description: 'set to false if this service has no serverless job'
+  job:
+    description: 'set to false if this service has no job (Scaleway serverless job / GCP cloudrun-job) that needs to be updated'
     required: false
     default: 'true'
   scwVersion:
@@ -48,10 +48,6 @@ inputs:
     description: 'GCP region (deprecated: replaced with scaleway)'
     required: false
     default: 'europe-west4'
-  job:
-    description: 'set to false if this service does not have a cloudrun-job that needs to be updated (deprecated: replaced with scaleway)'
-    required: false
-    default: 'true'
   imageKey:
     description: 'the image key to be used to find the GCP image (deprecated: replaced with scaleway)'
     required: false
@@ -108,7 +104,7 @@ runs:
         SCW_DEFAULT_ORGANIZATION_ID: ${{ inputs.scwOrganizationId }}
         SCW_DEFAULT_REGION: ${{ inputs.scwRegion }}
         DEPLOY_CONTAINER: ${{ inputs.scwContainer }}
-        DEPLOY_JOB: ${{ inputs.scwJob }}
+        DEPLOY_JOB: ${{ inputs.job }}
       # language=bash
       run: |
         set -euo pipefail
