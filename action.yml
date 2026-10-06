@@ -114,7 +114,7 @@ runs:
         set -euo pipefail
         REGISTRY=rg.${SCW_DEFAULT_REGION}.scw.cloud
         # nf-action-build-and-push pushes the image to the registry of every env, so no copy is needed here
-        IMG=${REGISTRY}/nf-${NAME}-${ENV}/${NAME}:${GITHUB_SHA}
+        IMG=${REGISTRY}/${NAME}-${ENV}/main:${GITHUB_SHA}
         RESOURCE=${NAME}-${ENV}
 
         echo "${SCW_SECRET_KEY}" | docker login "${REGISTRY}" -u nologin --password-stdin > /dev/null
