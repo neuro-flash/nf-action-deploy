@@ -21,6 +21,10 @@ inputs:
     description: 'Scaleway organization id'
     required: false
     default: ''
+  scwProjectId:
+    description: 'Scaleway project id; set it if the container or job name is not unique across the projects the credentials can see'
+    required: false
+    default: ''
   scwRegion:
     description: 'Scaleway region'
     required: false
@@ -101,6 +105,7 @@ runs:
         SCW_SECRET_KEY: ${{ inputs.scwSecretKey }}
         SCW_DEFAULT_ORGANIZATION_ID: ${{ inputs.scwOrganizationId }}
         SCW_DEFAULT_REGION: ${{ inputs.scwRegion }}
+        SCW_PROJECT_ID: ${{ inputs.scwProjectId }}
         DEPLOY_CONTAINER: ${{ inputs.scwContainer }}
         DEPLOY_JOB: ${{ inputs.job }}
       # language=bash
@@ -117,15 +122,22 @@ runs:
           exit 1
         fi
 
+        PROJECT_FILTER=()
+        if [ -n "${SCW_PROJECT_ID}" ]; then
+          PROJECT_FILTER=(project-id="${SCW_PROJECT_ID}")
+        fi
+        # fails unless exactly one resource has the name, so duplicates never reach the update
+        SINGLE_ID='[.[] | select(.name == $name)] | if length == 1 then .[0].id elif length == 0 then error("no \($kind) named \($name) found") else error("found \(length) \($kind)s named \($name); set scwProjectId to pick the right one") end'
+
         if [ "${DEPLOY_CONTAINER}" = "true" ]; then
-          CONTAINER_ID=$(scw container container list name="${RESOURCE}" -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          CONTAINER_ID=$(scw container container list name="${RESOURCE}" "${PROJECT_FILTER[@]}" -o json | jq -er --arg name "${RESOURCE}" --arg kind container "${SINGLE_ID}")
           echo "Updating the container '${RESOURCE}'"
           scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
           CONTAINER_UPDATED_AT=${SECONDS}
         fi
 
         if [ "${DEPLOY_JOB}" = "true" ]; then
-          JOB_ID=$(scw jobs definition list -o json | jq -er --arg name "${RESOURCE}" '.[] | select(.name == $name) | .id')
+          JOB_ID=$(scw jobs definition list "${PROJECT_FILTER[@]}" -o json | jq -er --arg name "${RESOURCE}" --arg kind job "${SINGLE_ID}")
           echo "Updating the job '${RESOURCE}'"
           scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
         fi
