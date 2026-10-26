@@ -1,7 +1,5 @@
-# GCP is being replaced with Scaleway. Everything between the "GCP: delete once GCP is shut down" markers can be
-# removed once GCP is gone. Since our version tags on this action are mutable, we can then move the tags that services
-# use onto the GCP-free version instead of touching every repository (leftover `key`/`region`/`imageKey`/`project`
-# inputs in workflows only produce an "Unexpected input" warning).
+# Once GCP is gone, delete the "GCP: delete once GCP is shut down" blocks and move the (mutable) version tags onto
+# that version; leftover GCP inputs in workflows only cause "Unexpected input" warnings.
 name: 'Deploy'
 description: 'Deploy to Scaleway Serverless Containers/Jobs and/or GCP cloudRun (Scaleway requires a Linux X64 or ARM64 runner)'
 inputs:
@@ -109,7 +107,7 @@ runs:
       run: |
         set -euo pipefail
         REGISTRY=rg.${SCW_DEFAULT_REGION}.scw.cloud
-        # nf-action-build-and-push pushes the image to the registry of every env, so no copy is needed here
+        # nf-action-build-and-push already pushes to every env's registry
         IMG=${REGISTRY}/${NAME}-${ENV}/main:${GITHUB_SHA}
         RESOURCE=${NAME}-${ENV}
 
@@ -132,7 +130,7 @@ runs:
           scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
         fi
 
-        # waiting last so the job update runs while the container is still deploying
+        # wait last so the job updates while the container deploys
         if [ "${DEPLOY_CONTAINER}" = "true" ]; then
           echo "Waiting for '${RESOURCE}' to be ready"
           sleep 5
