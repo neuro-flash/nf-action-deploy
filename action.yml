@@ -133,7 +133,7 @@ runs:
           NAMESPACE_ID=$(scw container namespace list name="${RESOURCE}" "${PROJECT_FILTER[@]}" -o json | jq -er --arg name "${RESOURCE}" --arg kind namespace "${SINGLE_ID}")
           CONTAINER_ID=$(scw container container list namespace-id="${NAMESPACE_ID}" name=main -o json | jq -er --arg name main --arg kind container "${SINGLE_ID}")
           echo "Updating the container '${RESOURCE}'"
-          scw container container update "${CONTAINER_ID}" registry-image="${IMG}" > /dev/null
+          scw container container update "${CONTAINER_ID}" image="${IMG}" > /dev/null
           CONTAINER_UPDATED_AT=${SECONDS}
         fi
 
