@@ -1,7 +1,7 @@
 # Once GCP is gone, delete the "GCP: delete once GCP is shut down" blocks and move the (mutable) version tags onto
 # that version; leftover GCP inputs in workflows only cause "Unexpected input" warnings.
 name: 'Deploy'
-description: 'Deploy to Scaleway Serverless Containers/Jobs and/or GCP cloudRun (Scaleway requires a Linux X64 or ARM64 runner)'
+description: 'Deploy to Scaleway Serverless Containers and Kapsule CronJobs and/or GCP cloudRun (Scaleway requires a Linux X64 or ARM64 runner with kubectl)'
 inputs:
   env:
     description: 'dev | qa | prod'
@@ -34,7 +34,7 @@ inputs:
     required: false
     default: 'true'
   job:
-    description: 'set to false if this service has no job (Scaleway serverless job / GCP cloudrun-job) that needs to be updated'
+    description: 'set to false if this service has no job (Scaleway Kapsule CronJobs / GCP cloudrun-job) that needs to be updated'
     required: false
     default: 'true'
   scwVersion:
@@ -138,9 +138,17 @@ runs:
         fi
 
         if [ "${DEPLOY_JOB}" = "true" ]; then
-          JOB_ID=$(scw jobs definition list "${PROJECT_FILTER[@]}" -o json | jq -er --arg name "${RESOURCE}" --arg kind job "${SINGLE_ID}")
-          echo "Updating the job '${RESOURCE}'"
-          scw jobs definition update "${JOB_ID}" image-uri="${IMG}" > /dev/null
+          CLUSTER=backend-${ENV}
+          CLUSTER_ID=$(scw k8s cluster list name="${CLUSTER}" "${PROJECT_FILTER[@]}" -o json | jq -er --arg name "${CLUSTER}" --arg kind cluster "${SINGLE_ID}")
+          scw k8s kubeconfig install "${CLUSTER_ID}" auth-method=copy-cli-token > /dev/null
+          # labelled by the terraform module scaleway-k8s-job
+          SELECTOR=app.kubernetes.io/name=${NAME}
+          if [ -z "$(kubectl -n jobs get cronjob -l "${SELECTOR}" -o name)" ]; then
+            echo "::warning::No CronJobs with ${SELECTOR} in ${CLUSTER}, nothing to update"
+          else
+            echo "Updating the CronJobs of '${NAME}'"
+            kubectl -n jobs set image cronjob -l "${SELECTOR}" job="${IMG}"
+          fi
         fi
 
         # wait last so the job updates while the container deploys
