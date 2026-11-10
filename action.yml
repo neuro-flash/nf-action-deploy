@@ -143,7 +143,8 @@ runs:
           scw k8s kubeconfig install "${CLUSTER_ID}" auth-method=copy-cli-token > /dev/null
           # labelled by the terraform module scaleway-k8s-job
           SELECTOR=app.kubernetes.io/name=${NAME}
-          if [ -z "$(kubectl -n jobs get cronjob -l "${SELECTOR}" -o name)" ]; then
+          CRONJOBS=$(kubectl -n jobs get cronjob -l "${SELECTOR}" -o name)
+          if [ -z "${CRONJOBS}" ]; then
             echo "::warning::No CronJobs with ${SELECTOR} in ${CLUSTER}, nothing to update"
           else
             echo "Updating the CronJobs of '${NAME}'"
